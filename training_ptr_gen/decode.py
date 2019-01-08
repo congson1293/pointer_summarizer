@@ -19,6 +19,9 @@ from data_util import data, config
 from model import Model
 from data_util.utils import write_for_rouge, rouge_eval, rouge_log
 from train_util import get_input_from_batch
+import numpy as np
+from data_util import embedding
+
 
 
 use_cuda = config.use_gpu and torch.cuda.is_available()
@@ -60,7 +63,7 @@ class BeamSearch(object):
         self.vocab = Vocab(config.vocab_path, config.vocab_size)
         self.batcher = Batcher(config.decode_data_path, self.vocab, mode='decode',
                                batch_size=config.beam_size, single_pass=True)
-        time.sleep(15)
+        # time.sleep(15)
 
         self.model = Model(model_file_path, is_eval=True)
 
@@ -127,10 +130,39 @@ class BeamSearch(object):
         results = []
         steps = 0
         while steps < config.max_dec_steps and len(results) < config.beam_size:
+            # to do here
+            # ...
             latest_tokens = [h.latest_token for h in beams]
-            latest_tokens = [t if t < self.vocab.size() else self.vocab.word2id(data.UNKNOWN_TOKEN) \
-                             for t in latest_tokens]
-            y_t_1 = Variable(torch.LongTensor(latest_tokens))
+            # latest_tokens = [t if t < self.vocab.size() else self.vocab.word2id(data.UNKNOWN_TOKEN) \
+            #                  for t in latest_tokens]
+
+            y_t_1 = np.zeros((len(latest_tokens), config.emb_dim))
+            for i, t in enumerate(latest_tokens):
+                if t < self.vocab.size():
+                    w = self.vocab.id2word(t)
+                else:
+                    idx = t - self.vocab.size()
+                    if idx >= len(batch.art_oovs[i]):
+                        w = data.UNKNOWN_TOKEN
+                    else:
+                        try:
+                            w = batch.art_oovs[i][idx]
+                        except Exception as e:
+                            print(e.message)
+                if w == data.START_DECODING:
+                    embedd = embedding.start_decoding_embedd
+                elif w == data.STOP_DECODING:
+                    embedd = embedding.stop_decoding_embedd
+                elif w == data.PAD_TOKEN:
+                    embedd = embedding.padding_embedd
+                elif w == data.UNKNOWN_TOKEN:
+                    embedd = embedding.unknown_decoding_embedd
+                else:
+                    embedd = embedding.fasttext.get_numpy_vector(w.lower())
+                y_t_1[i] = embedd
+
+            # y_t_1 = Variable(torch.LongTensor(latest_tokens))
+            y_t_1 = Variable(torch.FloatTensor(y_t_1))
             if use_cuda:
                 y_t_1 = y_t_1.cuda()
             all_state_h =[]

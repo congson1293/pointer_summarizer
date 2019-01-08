@@ -42,8 +42,8 @@ def init_wt_unif(wt):
 class Encoder(nn.Module):
     def __init__(self):
         super(Encoder, self).__init__()
-        self.embedding = nn.Embedding(config.vocab_size, config.emb_dim)
-        init_wt_normal(self.embedding.weight)
+        # self.embedding = nn.Embedding(config.vocab_size, config.emb_dim)
+        # init_wt_normal(self.embedding.weight)
 
         self.lstm = nn.LSTM(config.emb_dim, config.hidden_dim, num_layers=1, batch_first=True, bidirectional=True)
         init_lstm_wt(self.lstm)
@@ -52,9 +52,13 @@ class Encoder(nn.Module):
 
     #seq_lens should be in descending order
     def forward(self, input, seq_lens):
-        embedded = self.embedding(input)
+        # embedded = self.embedding(input)
 
-        packed = pack_padded_sequence(embedded, seq_lens, batch_first=True)
+        # packed = pack_padded_sequence(embedded, seq_lens, batch_first=True)
+
+        input = input.type(torch.FloatTensor)
+        packed = pack_padded_sequence(input, seq_lens, batch_first=True)
+
         output, hidden = self.lstm(packed)
 
         encoder_outputs, _ = pad_packed_sequence(output, batch_first=True)  # h dim = B x t_k x n
@@ -105,7 +109,7 @@ class Attention(nn.Module):
             coverage_feature = self.W_c(coverage_input)  # B * t_k x 2*hidden_dim
             att_features = att_features + coverage_feature
 
-        e = F.tanh(att_features) # B * t_k x 2*hidden_dim
+        e = torch.tanh(att_features) # B * t_k x 2*hidden_dim
         scores = self.v(e)  # B * t_k x 1
         scores = scores.view(-1, t_k)  # B x t_k
 
@@ -157,8 +161,11 @@ class Decoder(nn.Module):
                                                               enc_padding_mask, coverage)
             coverage = coverage_next
 
-        y_t_1_embd = self.embedding(y_t_1)
-        x = self.x_context(torch.cat((c_t_1, y_t_1_embd), 1))
+        # y_t_1_embd = self.embedding(y_t_1)
+        # x = self.x_context(torch.cat((c_t_1, y_t_1_embd), 1))
+
+        x = self.x_context(torch.cat((c_t_1, y_t_1), 1))
+
         lstm_out, s_t = self.lstm(x.unsqueeze(1), s_t_1)
 
         h_decoder, c_decoder = s_t
@@ -174,7 +181,7 @@ class Decoder(nn.Module):
         if config.pointer_gen:
             p_gen_input = torch.cat((c_t, s_t_hat, x), 1)  # B x (2*2*hidden_dim + emb_dim)
             p_gen = self.p_gen_linear(p_gen_input)
-            p_gen = F.sigmoid(p_gen)
+            p_gen = torch.sigmoid(p_gen)
 
         output = torch.cat((lstm_out.view(-1, config.hidden_dim), c_t), 1) # B x hidden_dim * 3
         output = self.out1(output) # B x hidden_dim
@@ -204,7 +211,7 @@ class Model(object):
         reduce_state = ReduceState()
 
         # shared the embedding between encoder and decoder
-        decoder.embedding.weight = encoder.embedding.weight
+        # decoder.embedding.weight = encoder.embedding.weight
         if is_eval:
             encoder = encoder.eval()
             decoder = decoder.eval()

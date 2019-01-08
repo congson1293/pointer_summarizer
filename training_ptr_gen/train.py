@@ -14,8 +14,11 @@ from torch.optim import Adagrad
 from data_util import config
 from data_util.batcher import Batcher
 from data_util.data import Vocab
-from data_util.utils import calc_running_avg_loss
+from data_util.utils import calc_running_avg_loss, time_since
 from train_util import get_input_from_batch, get_output_from_batch
+
+
+
 
 use_cuda = config.use_gpu and torch.cuda.is_available()
 
@@ -59,7 +62,7 @@ class Train(object):
         start_iter, start_loss = 0, 0
 
         if model_file_path is not None:
-            state = torch.load(model_file_path, map_location= lambda storage, location: storage)
+            state = torch.load(model_file_path, map_location = lambda storage, location: storage)
             start_iter = state['iter']
             start_loss = state['current_loss']
 
@@ -76,7 +79,7 @@ class Train(object):
     def train_one_batch(self, batch):
         enc_batch, enc_padding_mask, enc_lens, enc_batch_extend_vocab, extra_zeros, c_t_1, coverage = \
             get_input_from_batch(batch, use_cuda)
-        dec_batch, dec_padding_mask, max_dec_len, dec_lens_var, target_batch = \
+        dec_batch, dec_padding_mask, max_dec_len, dec_lens_var, target_batch, target_ids_batch = \
             get_output_from_batch(batch, use_cuda)
 
         self.optimizer.zero_grad()
@@ -91,8 +94,9 @@ class Train(object):
                                                         encoder_outputs, encoder_feature, enc_padding_mask, c_t_1,
                                                         extra_zeros, enc_batch_extend_vocab,
                                                                            coverage, di)
-            target = target_batch[:, di]
-            gold_probs = torch.gather(final_dist, 1, target.unsqueeze(1)).squeeze()
+            # target = target_batch[:, di]
+            target_ids = target_ids_batch[:, di]
+            gold_probs = torch.gather(final_dist, 1, target_ids.unsqueeze(1)).squeeze()
             step_loss = -torch.log(gold_probs + config.eps)
             if config.is_coverage:
                 step_coverage_loss = torch.sum(torch.min(attn_dist, coverage), 1)
@@ -127,24 +131,26 @@ class Train(object):
             running_avg_loss = calc_running_avg_loss(loss, running_avg_loss, self.summary_writer, iter)
             iter += 1
 
-            if iter % 100 == 0:
+            if iter % 10 == 0:
                 self.summary_writer.flush()
-            print_interval = 1000
+            print_interval = 10
             if iter % print_interval == 0:
-                print('steps %d, seconds for %d batch: %.2f , loss: %f' % (iter, print_interval,
-                                                                           time.time() - start, loss))
-                start = time.time()
-            if iter % 5000 == 0:
+                print('iters = %d, time = %s, loss: %f' % (iter, time_since(start), loss))
+            if iter % 10 == 0:
                 self.save_model(running_avg_loss, iter)
+
+
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description="Train script")
-    parser.add_argument("-m",
-                        dest="model_file_path", 
+    parser.add_argument("-m", "--model_file_path",
+                        dest="model_file_path",
                         required=False,
                         default=None,
                         help="Model file for retraining (default: None).")
     args = parser.parse_args()
+
+    args.model_file_path = None
     
     train_processor = Train()
     train_processor.trainIters(config.max_iterations, args.model_file_path)

@@ -14,6 +14,8 @@ import data
 import random
 random.seed(1234)
 
+import embedding
+
 
 class Example(object):
 
@@ -27,15 +29,20 @@ class Example(object):
     if len(article_words) > config.max_enc_steps:
       article_words = article_words[:config.max_enc_steps]
     self.enc_len = len(article_words) # store the length after truncation but before padding
-    self.enc_input = [vocab.word2id(w) for w in article_words] # list of word ids; OOVs are represented by the id for UNK token
+
+    # self.enc_input = [vocab.word2id(w) for w in article_words] # list of word ids; OOVs are represented by the id for UNK token
+
+    self.enc_input = list(article_words)
 
     # Process the abstract
     abstract = ' '.join(abstract_sentences) # string
     abstract_words = abstract.split() # list of strings
-    abs_ids = [vocab.word2id(w) for w in abstract_words] # list of word ids; OOVs are represented by the id for UNK token
+    # abs_ids = [vocab.word2id(w) for w in abstract_words] # list of word ids; OOVs are represented by the id for UNK token
 
     # Get the decoder input sequence and target sequence
-    self.dec_input, self.target = self.get_dec_inp_targ_seqs(abs_ids, config.max_dec_steps, start_decoding, stop_decoding)
+    # self.dec_input, self.target = self.get_dec_inp_targ_seqs(abs_ids, config.max_dec_steps, start_decoding, stop_decoding)
+    self.dec_input, self.target = self.get_dec_inp_targ_seqs_ex(abstract_words, config.max_dec_steps,
+                                                             data.START_DECODING, data.STOP_DECODING)
     self.dec_len = len(self.dec_input)
 
     # If using pointer-generator mode, we need to store some extra info
@@ -47,7 +54,9 @@ class Example(object):
       abs_ids_extend_vocab = data.abstract2ids(abstract_words, vocab, self.article_oovs)
 
       # Overwrite decoder target sequence so it uses the temp article OOV ids
-      _, self.target = self.get_dec_inp_targ_seqs(abs_ids_extend_vocab, config.max_dec_steps, start_decoding, stop_decoding)
+      _, self.target_ids = self.get_dec_inp_targ_seqs(abs_ids_extend_vocab, config.max_dec_steps, start_decoding, stop_decoding)
+      _, self.target = self.get_dec_inp_targ_seqs_ex(abstract_words, config.max_dec_steps,
+                                                  data.START_DECODING, data.STOP_DECODING)
 
     # Store the original strings
     self.original_article = article
@@ -67,11 +76,24 @@ class Example(object):
     return inp, target
 
 
+  def get_dec_inp_targ_seqs_ex(self, sequence, max_len, start, stop):
+    inp = [start] + sequence[:]
+    target = sequence[:]
+    if len(inp) > max_len: # truncate
+      inp = inp[:max_len]
+      target = target[:max_len] # no end_token
+    else: # no truncation
+      target.append(stop) # end token
+    assert len(inp) == len(target)
+    return inp, target
+
+
   def pad_decoder_inp_targ(self, max_len, pad_id):
     while len(self.dec_input) < max_len:
       self.dec_input.append(pad_id)
     while len(self.target) < max_len:
       self.target.append(pad_id)
+      self.target_ids.append(pad_id)
 
 
   def pad_encoder_input(self, max_len, pad_id):
@@ -101,13 +123,26 @@ class Batch(object):
 
     # Initialize the numpy arrays
     # Note: our enc_batch can have different length (second dimension) for each batch because we use dynamic_rnn for the encoder.
-    self.enc_batch = np.zeros((self.batch_size, max_enc_seq_len), dtype=np.int32)
+    # self.enc_batch = np.zeros((self.batch_size, max_enc_seq_len), dtype=np.int32)
+
+    self.enc_batch = np.zeros((self.batch_size, max_enc_seq_len, config.emb_dim), dtype=np.float32)
     self.enc_lens = np.zeros((self.batch_size), dtype=np.int32)
+
     self.enc_padding_mask = np.zeros((self.batch_size, max_enc_seq_len), dtype=np.float32)
 
     # Fill in the numpy arrays
     for i, ex in enumerate(example_list):
-      self.enc_batch[i, :] = ex.enc_input[:]
+      # self.enc_batch[i, :] = ex.enc_input[:]
+
+      for j, w in enumerate(ex.enc_input):
+        # get fasttext embedding
+        try:
+          embedd = embedding.fasttext.get_numpy_vector(w.lower())
+        except:
+          if w == self.pad_id:
+            embedd = embedding.padding_embedd
+        self.enc_batch[i, j] = embedd
+
       self.enc_lens[i] = ex.enc_len
       for j in xrange(ex.enc_len):
         self.enc_padding_mask[i][j] = 1
@@ -123,24 +158,55 @@ class Batch(object):
       for i, ex in enumerate(example_list):
         self.enc_batch_extend_vocab[i, :] = ex.enc_input_extend_vocab[:]
 
+
   def init_decoder_seq(self, example_list):
     # Pad the inputs and targets
     for ex in example_list:
       ex.pad_decoder_inp_targ(config.max_dec_steps, self.pad_id)
 
     # Initialize the numpy arrays.
-    self.dec_batch = np.zeros((self.batch_size, config.max_dec_steps), dtype=np.int32)
-    self.target_batch = np.zeros((self.batch_size, config.max_dec_steps), dtype=np.int32)
+    # self.dec_batch = np.zeros((self.batch_size, config.max_dec_steps), dtype=np.int32)
+    self.target_ids_batch = np.zeros((self.batch_size, config.max_dec_steps), dtype=np.int32)
+
+    self.dec_batch = np.zeros((self.batch_size, config.max_dec_steps, config.emb_dim), dtype=np.float32)
+    self.target_batch = np.zeros((self.batch_size, config.max_dec_steps, config.emb_dim), dtype=np.float32)
+
     self.dec_padding_mask = np.zeros((self.batch_size, config.max_dec_steps), dtype=np.float32)
     self.dec_lens = np.zeros((self.batch_size), dtype=np.int32)
 
     # Fill in the numpy arrays
     for i, ex in enumerate(example_list):
-      self.dec_batch[i, :] = ex.dec_input[:]
-      self.target_batch[i, :] = ex.target[:]
+      self.target_ids_batch[i, :] = ex.target_ids[:]
+
+      for j in xrange(len(ex.dec_input)):
+        # self.dec_batch[i, :] = ex.dec_input[:]
+        # self.target_batch[i, :] = ex.target[:]
+
+        try:
+          if ex.dec_input[j] == data.START_DECODING:
+            self.dec_batch[i, j] = embedding.start_decoding_embedd
+          elif ex.dec_input[j] == data.STOP_DECODING:
+            self.dec_batch[i, j] = embedding.stop_decoding_embedd
+          else:
+            self.dec_batch[i, j] = embedding.fasttext.get_numpy_vector(ex.dec_input[j].lower())
+        except:
+          if ex.dec_input[j] == self.pad_id:
+            self.dec_batch[i, j] = embedding.padding_embedd
+        try:
+          if ex.target_input[j] == data.START_DECODING:
+            self.target_batch[i, j] = embedding.start_decoding_embedd
+          elif ex.target_input[j] == data.STOP_DECODING:
+            self.target_batch[i, j] = embedding.stop_decoding_embedd
+          else:
+            self.target_batch[i, j] = embedding.fasttext.get_numpy_vector(ex.target[j].lower())
+        except:
+          if ex.target[j] == self.pad_id:
+            self.target_batch[i, j] = embedding.padding_embedd
+
       self.dec_lens[i] = ex.dec_len
       for j in xrange(ex.dec_len):
         self.dec_padding_mask[i][j] = 1
+
 
   def store_orig_strings(self, example_list):
     self.original_articles = [ex.original_article for ex in example_list] # list of lists
@@ -270,8 +336,8 @@ class Batcher(object):
     while True:
       e = example_generator.next() # e is a tf.Example
       try:
-        article_text = e.features.feature['article'].bytes_list.value[0] # the article text was saved under the key 'article' in the data files
-        abstract_text = e.features.feature['abstract'].bytes_list.value[0] # the abstract text was saved under the key 'abstract' in the data files
+        article_text = unicode(e.features.feature['article'].bytes_list.value[0], encoding='utf-8') # the article text was saved under the key 'article' in the data files
+        abstract_text = unicode(e.features.feature['abstract'].bytes_list.value[0], encoding='utf-8') # the abstract text was saved under the key 'abstract' in the data files
       except ValueError:
         tf.logging.error('Failed to get article or abstract from example')
         continue

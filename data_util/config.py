@@ -1,23 +1,23 @@
 import os
 
-root_dir = os.path.expanduser("~")
+root_dir = '..'
 
 #train_data_path = os.path.join(root_dir, "ptr_nw/cnn-dailymail-master/finished_files/train.bin")
-train_data_path = os.path.join(root_dir, "ptr_nw/cnn-dailymail-master/finished_files/chunked/train_*")
-eval_data_path = os.path.join(root_dir, "ptr_nw/cnn-dailymail-master/finished_files/val.bin")
-decode_data_path = os.path.join(root_dir, "ptr_nw/cnn-dailymail-master/finished_files/test.bin")
-vocab_path = os.path.join(root_dir, "ptr_nw/cnn-dailymail-master/finished_files/vocab")
-log_root = os.path.join(root_dir, "ptr_nw/log")
+train_data_path = os.path.join(root_dir, "finished_files/chunked/train_*.bin")
+eval_data_path = os.path.join(root_dir, "finished_files/chunked/val_*")
+decode_data_path = os.path.join(root_dir, "finished_files/test.bin")
+vocab_path = os.path.join(root_dir, "finished_files/vocab")
+log_root = os.path.join(root_dir, "log")
 
 # Hyperparameters
-hidden_dim= 256
-emb_dim= 128
+hidden_dim= 32
+emb_dim= 8
 batch_size= 8
-max_enc_steps=400
+max_enc_steps=500
 max_dec_steps=100
 beam_size=4
 min_dec_steps=35
-vocab_size=50000
+vocab_size=2000
 
 lr=0.15
 adagrad_init_acc=0.1
@@ -30,7 +30,7 @@ is_coverage = False
 cov_loss_wt = 1.0
 
 eps = 1e-12
-max_iterations = 500000
+max_iterations = 20
 
 use_gpu=True
 

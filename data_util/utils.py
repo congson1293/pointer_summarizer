@@ -3,6 +3,8 @@ import os
 import pyrouge
 import logging
 import tensorflow as tf
+import time, math
+
 
 def print_results(article, abstract, decoded_output):
   print ("")
@@ -89,3 +91,15 @@ def write_for_rouge(reference_sents, decoded_words, ex_index,
       f.write(sent) if idx == len(decoded_sents) - 1 else f.write(sent + "\n")
 
   #print("Wrote example %i to file" % ex_index)
+
+def time_since(since):
+    now = time.time()
+    s = now - since
+    m = math.floor(s / 60)
+    s -= m * 60
+    return '%dm %ds' % (m, s)
+
+
+def mkdir(dir):
+    if (os.path.exists(dir) == False):
+        os.mkdir(dir)
