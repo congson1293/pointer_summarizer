@@ -56,13 +56,15 @@ class Encoder(nn.Module):
 
         # packed = pack_padded_sequence(embedded, seq_lens, batch_first=True)
 
+        # https://stackoverflow.com/questions/51030782/why-do-we-pack-the-sequences-in-pytorch
+        # https://gist.github.com/HarshTrivedi/f4e7293e941b17d19058f6fb90ab0fec
         input = input.type(torch.FloatTensor)
         packed = pack_padded_sequence(input, seq_lens, batch_first=True)
 
         output, hidden = self.lstm(packed)
 
         encoder_outputs, _ = pad_packed_sequence(output, batch_first=True)  # h dim = B x t_k x n
-        # https://stackoverflow.com/questions/48915810/pytorch-contiguous#:~:text=From%20the%20pytorch%20documentation%3A,function%20returns%20the%20self%20tensor.
+        # https://stackoverflow.com/questions/48915810/pytorch-contiguous
         encoder_outputs = encoder_outputs.contiguous()
 
         encoder_feature = encoder_outputs.view(-1, 2*config.hidden_dim)  # B * t_k x 2*hidden_dim
