@@ -62,6 +62,7 @@ class Encoder(nn.Module):
         output, hidden = self.lstm(packed)
 
         encoder_outputs, _ = pad_packed_sequence(output, batch_first=True)  # h dim = B x t_k x n
+        # https://stackoverflow.com/questions/48915810/pytorch-contiguous#:~:text=From%20the%20pytorch%20documentation%3A,function%20returns%20the%20self%20tensor.
         encoder_outputs = encoder_outputs.contiguous()
 
         encoder_feature = encoder_outputs.view(-1, 2*config.hidden_dim)  # B * t_k x 2*hidden_dim
